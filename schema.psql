@@ -1,0 +1,1519 @@
+CREATE TABLE users (
+  user_id SERIAL PRIMARY KEY,
+
+  name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  phone TEXT UNIQUE,
+  password TEXT NOT NULL,
+
+  role TEXT DEFAULT 'user'
+    CHECK (role IN ('admin','manager','support','developer','user')),
+
+  is_active BOOLEAN DEFAULT TRUE,
+  is_verified BOOLEAN DEFAULT FALSE,
+
+  stripe_customer_id TEXT UNIQUE,
+
+  last_login TIMESTAMP,
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE sessions (
+  session_id SERIAL PRIMARY KEY,
+  user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
+
+  token TEXT UNIQUE,
+  ip_address TEXT,
+  user_agent TEXT,
+
+  expires_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE tenants (
+  tenant_id SERIAL PRIMARY KEY,
+
+  name TEXT NOT NULL,
+  owner_id INT REFERENCES users(user_id),
+
+  domain TEXT UNIQUE,
+  subdomain TEXT UNIQUE,
+
+  status TEXT DEFAULT 'active'
+    CHECK (status IN ('active','suspended','expired')),
+
+  plan_id INT,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE tenant_users (
+  id SERIAL PRIMARY KEY,
+
+  tenant_id INT REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+  user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
+
+  role TEXT DEFAULT 'member'
+    CHECK (role IN ('owner','admin','member')),
+
+  created_at TIMESTAMP DEFAULT now(),
+
+  UNIQUE(tenant_id, user_id)
+);
+
+
+CREATE TABLE packages (
+  package_id SERIAL PRIMARY KEY,
+
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+
+  description TEXT,
+
+  price NUMERIC(10,2) NOT NULL,
+  setup_fee NUMERIC(10,2) DEFAULT 0,
+
+  duration_days INT NOT NULL,
+  is_lifetime BOOLEAN DEFAULT FALSE,
+
+  is_active BOOLEAN DEFAULT TRUE,
+
+  category TEXT
+    CHECK (category IN ('ecommerce','pos','school','hospital','portfolio','restaurant')),
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE features (
+  feature_id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT
+);
+
+
+CREATE TABLE package_features (
+  id SERIAL PRIMARY KEY,
+
+  package_id INT REFERENCES packages(package_id) ON DELETE CASCADE,
+  feature_id INT REFERENCES features(feature_id) ON DELETE CASCADE,
+
+  value BOOLEAN DEFAULT TRUE,
+
+  UNIQUE(package_id, feature_id)
+);
+
+
+CREATE TABLE purchases (
+  purchase_id SERIAL PRIMARY KEY,
+
+  user_id INT REFERENCES users(user_id),
+  tenant_id INT REFERENCES tenants(tenant_id),
+  package_id INT REFERENCES packages(package_id),
+
+  package_name TEXT NOT NULL,
+  package_snapshot JSONB,
+
+  original_amount NUMERIC(10,2),
+  discount_amount NUMERIC(10,2),
+  final_amount NUMERIC(10,2) NOT NULL,
+
+  status TEXT DEFAULT 'pending'
+    CHECK (status IN ('pending','approved','rejected','completed','failed')),
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE payments (
+  payment_id SERIAL PRIMARY KEY,
+
+  purchase_id INT REFERENCES purchases(purchase_id),
+  user_id INT REFERENCES users(user_id),
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  amount NUMERIC(10,2) NOT NULL,
+  currency TEXT DEFAULT 'USD',
+
+  method TEXT,
+  provider TEXT,
+
+  transaction_id TEXT UNIQUE,
+
+  status TEXT DEFAULT 'pending'
+    CHECK (status IN ('pending','success','failed','refunded')),
+
+  paid_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE subscriptions (
+  subscription_id SERIAL PRIMARY KEY,
+
+  user_id INT REFERENCES users(user_id),
+  tenant_id INT REFERENCES tenants(tenant_id),
+  package_id INT REFERENCES packages(package_id),
+  purchase_id INT REFERENCES purchases(purchase_id),
+
+  stripe_subscription_id TEXT UNIQUE,
+
+  status TEXT DEFAULT 'active'
+    CHECK (status IN ('active','past_due','canceled','expired','unpaid')),
+
+  current_period_start TIMESTAMP DEFAULT now(),
+  current_period_end TIMESTAMP,
+
+  cancel_at_period_end BOOLEAN DEFAULT FALSE,
+  is_lifetime BOOLEAN DEFAULT FALSE,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE websites (
+  website_id SERIAL PRIMARY KEY,
+
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name TEXT,
+  domain TEXT UNIQUE,
+  theme TEXT,
+
+  status TEXT DEFAULT 'active'
+    CHECK (status IN ('active','development','maintenance','suspended')),
+
+  is_public BOOLEAN DEFAULT TRUE,
+
+  business_name TEXT,
+  logo TEXT,
+
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE pages (
+  page_id SERIAL PRIMARY KEY,
+
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+
+  sections JSONB NOT NULL DEFAULT '[]',
+
+  seo_title TEXT,
+  seo_description TEXT,
+
+  is_homepage BOOLEAN DEFAULT FALSE,
+  is_published BOOLEAN DEFAULT FALSE,
+
+  status TEXT DEFAULT 'draft'
+    CHECK (status IN ('draft','published','archived')),
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE analytics_events (
+  event_id SERIAL PRIMARY KEY,
+
+  tenant_id INT REFERENCES tenants(tenant_id),
+  website_id INT REFERENCES websites(website_id),
+  page_id INT REFERENCES pages(page_id),
+
+  event_type TEXT DEFAULT 'page_view',
+
+  session_id TEXT,
+  ip_address TEXT,
+  user_agent TEXT,
+
+  referrer TEXT,
+  path TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE logs (
+  log_id SERIAL PRIMARY KEY,
+
+  user_id INT REFERENCES users(user_id),
+
+  action TEXT NOT NULL,
+  entity_type TEXT,
+  entity_id INT,
+
+  description TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE notifications (
+  notification_id SERIAL PRIMARY KEY,
+
+  user_id INT REFERENCES users(user_id),
+
+  title TEXT,
+  message TEXT,
+  link TEXT,
+
+  is_read BOOLEAN DEFAULT FALSE,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE tickets (
+  ticket_id SERIAL PRIMARY KEY,
+
+  user_id INT REFERENCES users(user_id),
+  assigned_to INT REFERENCES users(user_id),
+
+  subject TEXT,
+  message TEXT,
+
+  status TEXT DEFAULT 'open'
+    CHECK (status IN ('open','in_progress','resolved','closed')),
+
+  priority TEXT DEFAULT 'medium'
+    CHECK (priority IN ('low','medium','high','urgent')),
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE services (
+  service_id SERIAL PRIMARY KEY,
+
+  tenant_id INT REFERENCES tenants(tenant_id),
+  website_id INT REFERENCES websites(website_id),
+
+  type TEXT NOT NULL
+    CHECK (type IN ('ecommerce','restaurant','pos','school','hospital','portfolio')),
+
+  status TEXT DEFAULT 'active'
+    CHECK (status IN ('active','inactive','suspended')),
+
+  config JSONB DEFAULT '{}'::jsonb,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE service_modules (
+  module_id SERIAL PRIMARY KEY,
+
+  service_id INT REFERENCES services(service_id) ON DELETE CASCADE,
+
+  module_type TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT TRUE,
+
+  config JSONB DEFAULT '{}'::jsonb,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE ecom_users (
+  user_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(150) NOT NULL,
+  phone VARCHAR(20),
+
+  password TEXT NOT NULL,
+
+  role TEXT DEFAULT 'user'
+    CHECK (role IN ('admin','manager','sales','user')),
+
+  is_active BOOLEAN DEFAULT TRUE,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now(),
+
+  UNIQUE(tenant_id, email)
+);
+
+CREATE TABLE ecom_customers (
+  customer_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(100),
+  phone VARCHAR(20) NOT NULL,
+  email VARCHAR(100),
+  address TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE ecom_categories (
+  category_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  parent_id INT REFERENCES ecom_categories(category_id) ON DELETE CASCADE,
+
+  name VARCHAR(100) NOT NULL,
+  image TEXT,
+  image_id TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE ecom_brands (
+  brand_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(100) NOT NULL,
+  description TEXT,
+
+  image TEXT,
+  image_id TEXT,
+
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE ecom_products (
+  product_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  category_id INT REFERENCES ecom_categories(category_id),
+  brand_id INT REFERENCES ecom_brands(brand_id),
+
+  name VARCHAR(150) NOT NULL,
+  slug VARCHAR(150),
+
+  description TEXT,
+
+  purchase_price NUMERIC(10,2),
+  sale_price NUMERIC(10,2),
+  discount_price NUMERIC(10,2) DEFAULT 0,
+
+  wholesale_price NUMERIC(10,2),
+  dealer_price NUMERIC(10,2) DEFAULT 0,
+  retail_price NUMERIC(10,2) DEFAULT 0,
+
+  image TEXT,
+  image_id VARCHAR(255),
+
+  stock INT DEFAULT 0,
+
+  unit VARCHAR(50),
+  barcode TEXT UNIQUE,
+
+  is_active BOOLEAN DEFAULT TRUE,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE ecom_suppliers (
+  supplier_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(200),
+  company_name VARCHAR(200),
+
+  phone VARCHAR(20),
+  email VARCHAR(150),
+
+  address TEXT,
+
+  is_active BOOLEAN DEFAULT TRUE,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE ecom_purchases (
+  purchase_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  supplier_id INT REFERENCES ecom_suppliers(supplier_id),
+
+  invoice_no VARCHAR(100),
+
+  subtotal_amount NUMERIC(10,2) DEFAULT 0,
+  extra_discount NUMERIC(10,2) DEFAULT 0,
+  total_amount NUMERIC(10,2) DEFAULT 0,
+
+  payment_method VARCHAR(50),
+  transaction_id VARCHAR(100),
+
+  note TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE ecom_purchase_items (
+  id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  purchase_id INT REFERENCES ecom_purchases(purchase_id) ON DELETE CASCADE,
+  product_id INT REFERENCES ecom_products(product_id),
+
+  quantity INT NOT NULL,
+  purchase_price NUMERIC(10,2) NOT NULL
+);
+
+CREATE TABLE ecom_purchase_payments (
+  payment_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  purchase_id INT REFERENCES ecom_purchases(purchase_id),
+
+  payment_method VARCHAR(50),
+  amount_paid NUMERIC(10,2),
+
+  transaction_id VARCHAR(100),
+
+  payment_date TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE ecom_orders (
+  order_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  customer_id INT REFERENCES ecom_customers(customer_id),
+
+  phone VARCHAR(20) NOT NULL,
+
+  shipping_address TEXT NOT NULL,
+  shipping_city VARCHAR(100),
+  shipping_area VARCHAR(100),
+
+  courier_name VARCHAR(100),
+  courier_tracking_id VARCHAR(100),
+
+  status VARCHAR(30) DEFAULT 'pending'
+    CHECK (
+      status IN (
+        'pending','confirmed','processing','shipped',
+        'out_for_delivery','delivered','cancelled',
+        'returned','failed'
+      )
+    ),
+
+  subtotal_amount NUMERIC(10,2) NOT NULL,
+  total_discount_amount NUMERIC(10,2) DEFAULT 0,
+  delivery_charge NUMERIC(10,2) DEFAULT 0,
+  total_amount NUMERIC(10,2) NOT NULL,
+  due_amount NUMERIC(10,2) DEFAULT 0,
+
+  payment_type VARCHAR(20) DEFAULT 'cod'
+    CHECK (payment_type IN ('cod','prepaid')),
+
+  note TEXT,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+
+CREATE TABLE ecom_order_items (
+  order_item_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  order_id INT REFERENCES ecom_orders(order_id) ON DELETE CASCADE,
+  product_id INT REFERENCES ecom_products(product_id),
+
+  quantity INT NOT NULL,
+  price NUMERIC(10,2) NOT NULL
+);
+
+CREATE TABLE ecom_payments (
+  payment_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  order_id INT REFERENCES ecom_orders(order_id) ON DELETE CASCADE,
+
+  payment_method VARCHAR(50),
+  transaction_id VARCHAR(100),
+
+  amount NUMERIC(10,2) NOT NULL,
+  amount_received NUMERIC(10,2) DEFAULT 0,
+  change_amount NUMERIC(10,2) DEFAULT 0,
+
+  payment_status VARCHAR(30) DEFAULT 'pending'
+    CHECK (
+      payment_status IN (
+        'pending','success','failed',
+        'refunded','partial','completed'
+      )
+    ),
+
+  paid_at TIMESTAMP DEFAULT now(),
+  note TEXT
+);
+
+CREATE TABLE ecom_supports (
+  support_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(100),
+  email VARCHAR(100),
+  subject VARCHAR(200),
+  message TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE ecom_inventory_logs (
+  log_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  product_id INT REFERENCES ecom_products(product_id),
+
+  type TEXT CHECK (type IN ('purchase','sale','adjustment','return')),
+  quantity INT NOT NULL,
+
+  reference_id INT,
+  note TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE ecom_refunds (
+  refund_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  order_id INT REFERENCES ecom_orders(order_id),
+
+  amount NUMERIC(10,2),
+  reason TEXT,
+
+  status TEXT DEFAULT 'pending'
+    CHECK (status IN ('pending','approved','rejected')),
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE ecom_reviews (
+  review_id SERIAL PRIMARY KEY,
+
+  tenant_id INT REFERENCES tenants(tenant_id),
+  user_id INT REFERENCES ecom_users(user_id) ON DELETE SET NULL,
+
+  rating INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+
+  title VARCHAR(150),
+  comment TEXT,
+
+  is_approved BOOLEAN DEFAULT TRUE,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+
+CREATE TABLE portf_users (
+  user_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(150) NOT NULL,
+  password TEXT NOT NULL,
+
+  role TEXT DEFAULT 'owner'
+    CHECK (role IN ('owner','editor','viewer')),
+
+  is_active BOOLEAN DEFAULT TRUE,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now(),
+
+  UNIQUE(tenant_id, email)
+);
+
+
+CREATE TABLE portf_profile (
+  profile_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  full_name VARCHAR(150),
+  headline VARCHAR(200),
+  bio TEXT,
+
+  profile_image TEXT,
+  cover_image TEXT,
+
+  location VARCHAR(150),
+  email VARCHAR(150),
+  phone VARCHAR(20),
+
+  website VARCHAR(200),
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE portf_social_links (
+  social_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  platform VARCHAR(50), 
+  url TEXT,
+
+  icon TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE portf_skills (
+  skill_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(100),
+  level INT CHECK (level BETWEEN 1 AND 100),
+
+  category VARCHAR(100),
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE portf_experience (
+  experience_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  company_name VARCHAR(150),
+  position VARCHAR(150),
+
+  start_date DATE,
+  end_date DATE,
+
+  is_current BOOLEAN DEFAULT FALSE,
+
+  description TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+
+CREATE TABLE portf_education (
+  education_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  institution VARCHAR(200),
+  degree VARCHAR(150),
+  field_of_study VARCHAR(150),
+
+  start_year INT,
+  end_year INT,
+
+  description TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE portf_projects (
+  project_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  title VARCHAR(200),
+  slug VARCHAR(200),
+
+  description TEXT,
+
+  project_url TEXT,
+  github_url TEXT,
+
+  thumbnail TEXT,
+
+  status TEXT DEFAULT 'published'
+    CHECK (status IN ('draft','published','archived')),
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE portf_project_images (
+  image_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  project_id INT REFERENCES portf_projects(project_id) ON DELETE CASCADE,
+
+  image_url TEXT,
+  caption TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE portf_services (
+  service_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  title VARCHAR(150),
+  description TEXT,
+
+  icon TEXT,
+
+  price_range VARCHAR(100),
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE portf_testimonials (
+  testimonial_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  client_name VARCHAR(150),
+  client_position VARCHAR(150),
+  message TEXT,
+
+  rating INT CHECK (rating BETWEEN 1 AND 5),
+
+  client_image TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE portf_blog (
+  blog_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  title VARCHAR(200),
+  slug VARCHAR(200) UNIQUE,
+
+  content TEXT,
+
+  image TEXT,
+  image_id TEXT,
+
+  status TEXT DEFAULT 'published'
+    CHECK (status IN ('draft','published','archived')),
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE portf_blog_comments (
+  comment_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  blog_id INT REFERENCES portf_blog(blog_id) ON DELETE CASCADE,
+
+  name VARCHAR(150),
+  email VARCHAR(150),
+
+  comment TEXT,
+
+  is_approved BOOLEAN DEFAULT FALSE,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE portf_contacts (
+  contact_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(150),
+  email VARCHAR(150),
+  subject VARCHAR(200),
+  message TEXT,
+
+  is_read BOOLEAN DEFAULT FALSE,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE portf_analytics (
+  event_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  page_path TEXT,
+  event_type TEXT,
+
+  ip_address TEXT,
+
+  user_agent TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE res_users (
+  user_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(150),
+  phone VARCHAR(20),
+
+  password TEXT NOT NULL,
+
+  role TEXT DEFAULT 'staff'
+    CHECK (role IN ('admin','manager','cashier','waiter','chef','staff')),
+
+  is_active BOOLEAN DEFAULT TRUE,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE res_profile (
+  profile_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  restaurant_name VARCHAR(200),
+  description TEXT,
+
+  logo TEXT,
+  cover_image TEXT,
+
+  address TEXT,
+  city VARCHAR(100),
+  phone VARCHAR(20),
+  email VARCHAR(150),
+
+  opening_time TIME,
+  closing_time TIME,
+
+  is_open BOOLEAN DEFAULT TRUE,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE res_tables (
+  table_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  table_number VARCHAR(20),
+  capacity INT,
+
+  status TEXT DEFAULT 'available'
+    CHECK (status IN ('available','occupied','reserved','maintenance')),
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE res_categories (
+  category_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(100),
+  description TEXT,
+    image TEXT,
+    image_id TEXT,
+  is_active BOOLEAN DEFAULT TRUE,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE res_items (
+  item_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  category_id INT REFERENCES res_categories(category_id),
+
+  name VARCHAR(150),
+  description TEXT,
+
+  price NUMERIC(10,2),
+  discount NUMERIC(10,2),
+
+  image TEXT,
+  image_id TEXT,
+
+  is_available BOOLEAN DEFAULT TRUE,
+
+  preparation_time INT DEFAULT 10, -- minutes
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+
+CREATE TABLE res_orders (
+  order_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  table_id INT REFERENCES res_tables(table_id),
+
+  customer_name VARCHAR(150),
+  customer_phone VARCHAR(20),
+
+  order_type TEXT DEFAULT 'dine_in'
+    CHECK (order_type IN ('dine_in','takeaway','delivery')),
+
+  status TEXT DEFAULT 'pending'
+    CHECK (
+      status IN (
+        'pending',
+        'accepted',
+        'preparing',
+        'ready',
+        'served',
+        'completed',
+        'cancelled'
+      )
+    ),
+
+  subtotal NUMERIC(10,2),
+  discount NUMERIC(10,2) DEFAULT 0,
+  tax NUMERIC(10,2) DEFAULT 0,
+  total NUMERIC(10,2),
+
+  note TEXT,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE res_order_items (
+  order_item_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  order_id INT REFERENCES res_orders(order_id) ON DELETE CASCADE,
+  item_id INT REFERENCES res_items(item_id),
+
+  quantity INT NOT NULL,
+  base_price NUMERIC(10,2),
+    total_price NUMERIC(10,2
+
+  special_note TEXT
+);
+
+
+
+
+CREATE TABLE res_payments (
+  payment_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  order_id INT REFERENCES res_orders(order_id),
+
+  payment_method VARCHAR(50)
+    CHECK (payment_method IN ('cash','card','bkash','nagad','bank_transfer')),
+
+  amount NUMERIC(10,2),
+
+  transaction_id VARCHAR(100),
+
+  payment_status TEXT DEFAULT 'pending'
+    CHECK (payment_status IN ('pending','paid','failed','refunded')),
+
+  paid_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE res_kitchen_tickets (
+  ticket_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  order_id INT REFERENCES res_orders(order_id),
+
+  status TEXT DEFAULT 'pending'
+    CHECK (status IN ('pending','cooking','ready','served')),
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE res_delivery (
+  delivery_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  order_id INT REFERENCES res_orders(order_id),
+
+  delivery_person VARCHAR(150),
+  phone VARCHAR(20),
+
+  status TEXT DEFAULT 'assigned'
+    CHECK (status IN ('assigned','picked','on_the_way','delivered','failed')),
+
+  delivery_fee NUMERIC(10,2) DEFAULT 0,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE res_reservations (
+  reservation_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  customer_name VARCHAR(150),
+  phone VARCHAR(20),
+
+  table_id INT REFERENCES res_tables(table_id),
+
+  reservation_time TIMESTAMP,
+
+  people_count INT,
+
+  status TEXT DEFAULT 'pending'
+    CHECK (status IN ('pending','confirmed','cancelled','completed')),
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE res_expenses (
+  expense_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  title VARCHAR(200),
+  amount NUMERIC(10,2),
+
+  category VARCHAR(100),
+
+  note TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE res_inventory (
+  inventory_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  item_name VARCHAR(150),
+  quantity NUMERIC(10,2),
+
+  unit VARCHAR(50),
+
+  reorder_level NUMERIC(10,2),
+
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE res_reviews (
+  review_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  customer_name VARCHAR(150),
+
+  rating INT CHECK (rating BETWEEN 1 AND 5),
+
+  comment TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE res_analytics (
+  event_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  event_type TEXT,
+  order_id INT,
+
+  revenue NUMERIC(10,2),
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE res_item_variants (
+  variant_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  item_id INT REFERENCES res_items(item_id) ON DELETE CASCADE,
+
+  name VARCHAR(100) NOT NULL,
+  type VARCHAR(50), 
+  -- examples: size, spice_level, crust_type, addon
+
+  is_required BOOLEAN DEFAULT FALSE,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE res_item_variant_options (
+  option_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  variant_id INT REFERENCES res_item_variants(variant_id) ON DELETE CASCADE,
+
+  option_name VARCHAR(100) NOT NULL,
+
+  price_modifier NUMERIC(10,2) DEFAULT 0,
+  -- + or - price adjustment from base item price
+
+  is_default BOOLEAN DEFAULT FALSE,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE res_order_item_variants (
+  id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  order_item_id INT REFERENCES res_order_items(order_item_id) ON DELETE CASCADE,
+
+  variant_id INT REFERENCES res_item_variants(variant_id),
+  option_id INT REFERENCES res_item_variant_options(option_id),
+
+  price_adjustment NUMERIC(10,2) DEFAULT 0
+);
+
+
+CREATE INDEX idx_site_pages_tenant_slug
+ON site_pages(tenant_id, slug);
+
+CREATE INDEX idx_site_pages_tenant_home
+ON site_pages(tenant_id, is_home);
+
+
+
+CREATE TABLE sch_users (
+  user_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(150),
+  phone VARCHAR(20),
+
+  password TEXT NOT NULL,
+
+  role TEXT DEFAULT 'teacher'
+    CHECK (role IN ('admin','principal','teacher','accountant','staff')),
+
+  is_active BOOLEAN DEFAULT TRUE,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+
+CREATE TABLE sch_profile (
+  profile_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  school_name VARCHAR(200),
+  address TEXT,
+  phone VARCHAR(20),
+  email VARCHAR(150),
+
+  logo TEXT,
+
+  established_year INT,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE sch_classes (
+  class_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(100),  -- e.g. Class 1, Class 10
+  section VARCHAR(50),
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE sch_students (
+  student_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  roll_no VARCHAR(50),
+  admission_no VARCHAR(50),
+
+  name VARCHAR(150),
+  gender VARCHAR(10),
+
+  date_of_birth DATE,
+
+  class_id INT REFERENCES sch_classes(class_id),
+
+  father_name VARCHAR(150),
+  mother_name VARCHAR(150),
+
+  phone VARCHAR(20),
+  address TEXT,
+
+  is_active BOOLEAN DEFAULT TRUE,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE sch_teachers (
+  teacher_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(150),
+  email VARCHAR(150),
+  phone VARCHAR(20),
+
+  subject VARCHAR(100),
+
+  salary NUMERIC(10,2),
+
+  join_date DATE,
+
+  is_active BOOLEAN DEFAULT TRUE,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE sch_subjects (
+  subject_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(100),
+
+  class_id INT REFERENCES sch_classes(class_id),
+
+  teacher_id INT REFERENCES sch_teachers(teacher_id),
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE sch_attendance (
+  attendance_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  student_id INT REFERENCES sch_students(student_id),
+
+  date DATE,
+
+  status TEXT
+    CHECK (status IN ('present','absent','late')),
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE sch_exams (
+  exam_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  name VARCHAR(100), -- Midterm, Final
+
+  class_id INT REFERENCES sch_classes(class_id),
+
+  exam_date DATE,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE sch_results (
+  result_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  student_id INT REFERENCES sch_students(student_id),
+  exam_id INT REFERENCES sch_exams(exam_id),
+
+  subject_id INT REFERENCES sch_subjects(subject_id),
+
+  marks NUMERIC(5,2),
+
+  grade VARCHAR(10),
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE sch_fees (
+  fee_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  class_id INT REFERENCES sch_classes(class_id),
+
+  fee_type VARCHAR(100), -- tuition, exam, transport
+
+  amount NUMERIC(10,2),
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE sch_fee_payments (
+  payment_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  student_id INT REFERENCES sch_students(student_id),
+  fee_id INT REFERENCES sch_fees(fee_id),
+
+  amount_paid NUMERIC(10,2),
+
+  payment_method VARCHAR(50)
+    CHECK (payment_method IN ('cash','card','bkash','nagad','bank_transfer')),
+
+  status TEXT DEFAULT 'paid'
+    CHECK (status IN ('paid','pending','failed')),
+
+  paid_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE sch_routines (
+  routine_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  class_id INT REFERENCES sch_classes(class_id),
+  subject_id INT REFERENCES sch_subjects(subject_id),
+  teacher_id INT REFERENCES sch_teachers(teacher_id),
+
+  day VARCHAR(20),
+  start_time TIME,
+  end_time TIME
+);
+
+
+CREATE TABLE sch_notices (
+  notice_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  title VARCHAR(200),
+  message TEXT,
+
+  is_published BOOLEAN DEFAULT TRUE,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE sch_library_books (
+  book_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  title VARCHAR(200),
+  author VARCHAR(150),
+  isbn VARCHAR(100),
+    link TEXT,
+  total_copies INT DEFAULT 1,
+  available_copies INT DEFAULT 1,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE sch_book_issues (
+  issue_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  book_id INT REFERENCES sch_library_books(book_id),
+  student_id INT REFERENCES sch_students(student_id),
+
+  issue_date DATE,
+  return_date DATE,
+
+  status TEXT DEFAULT 'issued'
+    CHECK (status IN ('issued','returned','late'))
+);
+
+
+CREATE TABLE sch_admissions (
+  admission_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  application_no VARCHAR(50) UNIQUE,
+
+  student_name VARCHAR(150) NOT NULL,
+  gender VARCHAR(10),
+
+  date_of_birth DATE,
+
+  applied_class_id INT REFERENCES sch_classes(class_id),
+
+  father_name VARCHAR(150),
+  mother_name VARCHAR(150),
+
+  phone VARCHAR(20),
+  email VARCHAR(150),
+  address TEXT,
+
+  previous_school VARCHAR(200),
+
+  status TEXT DEFAULT 'pending'
+    CHECK (status IN ('pending','approved','rejected','waiting')),
+
+  submitted_at TIMESTAMP DEFAULT now(),
+  reviewed_at TIMESTAMP
+);
+
+
+CREATE TABLE sch_admission_documents (
+  document_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  admission_id INT REFERENCES sch_admissions(admission_id) ON DELETE CASCADE,
+
+  document_type VARCHAR(100),
+  file_url TEXT,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE sch_admission_fees (
+  fee_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  admission_id INT REFERENCES sch_admissions(admission_id),
+
+  amount NUMERIC(10,2),
+
+  status TEXT DEFAULT 'unpaid'
+    CHECK (status IN ('unpaid','paid','partial')),
+
+  payment_method VARCHAR(50),
+
+  paid_at TIMESTAMP
+);
+
+
+CREATE TABLE sch_student_enrollments (
+  enrollment_id SERIAL PRIMARY KEY,
+  tenant_id INT REFERENCES tenants(tenant_id),
+
+  admission_id INT REFERENCES sch_admissions(admission_id),
+
+  student_id INT REFERENCES sch_students(student_id),
+
+  class_id INT REFERENCES sch_classes(class_id),
+
+  roll_no VARCHAR(50),
+  admission_no VARCHAR(50) UNIQUE,
+
+  enrollment_date TIMESTAMP DEFAULT now()
+);
