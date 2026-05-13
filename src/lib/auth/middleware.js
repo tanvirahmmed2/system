@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth/jwt";
 
 export function middleware(req) {
-  const token = req.cookies.get("token")?.value;
+  const token = req.cookies.get("disibin")?.value;
 
   const protectedRoutes = req.nextUrl.pathname.startsWith("/dashboard");
 

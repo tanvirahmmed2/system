@@ -33,6 +33,9 @@ CREATE TABLE sessions (
 );
 
 
+
+
+
 CREATE TABLE tenants (
   tenant_id SERIAL PRIMARY KEY,
 
@@ -78,17 +81,22 @@ CREATE TABLE packages (
   price NUMERIC(10,2) NOT NULL,
   setup_fee NUMERIC(10,2) DEFAULT 0,
 
-  duration_days INT NOT NULL,
+  duration_days INT,
   is_lifetime BOOLEAN DEFAULT FALSE,
 
   is_active BOOLEAN DEFAULT TRUE,
 
   category TEXT
-    CHECK (category IN ('ecommerce','pos','school','hospital','portfolio','restaurant')),
+    CHECK (category IN (
+      'ecommerce','restaurant','school',
+      'portfolio','hospital','service'
+    )),
 
   created_at TIMESTAMP DEFAULT now(),
   updated_at TIMESTAMP DEFAULT now()
 );
+
+
 
 CREATE TABLE features (
   feature_id SERIAL PRIMARY KEY,
@@ -116,18 +124,15 @@ CREATE TABLE purchases (
   tenant_id INT REFERENCES tenants(tenant_id),
   package_id INT REFERENCES packages(package_id),
 
-  package_name TEXT NOT NULL,
+  website_id INT REFERENCES websites(website_id),
+
   package_snapshot JSONB,
 
-  original_amount NUMERIC(10,2),
-  discount_amount NUMERIC(10,2),
-  final_amount NUMERIC(10,2) NOT NULL,
-
+  amount NUMERIC(10,2),
   status TEXT DEFAULT 'pending'
-    CHECK (status IN ('pending','approved','rejected','completed','failed')),
+    CHECK (status IN ('pending','completed','failed','refunded')),
 
-  created_at TIMESTAMP DEFAULT now(),
-  updated_at TIMESTAMP DEFAULT now()
+  created_at TIMESTAMP DEFAULT now()
 );
 
 
@@ -178,10 +183,47 @@ CREATE TABLE subscriptions (
 );
 
 
+CREATE TABLE site_templates (
+  template_id SERIAL PRIMARY KEY,
+
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+
+  type TEXT NOT NULL
+    CHECK (type IN (
+      'ecommerce','restaurant','portfolio',
+      'school','hospital','service'
+    )),
+
+  description TEXT,
+
+  preview_images JSONB NOT NULL DEFAULT '[]',
+  -- multiple images for demo gallery
+
+  demo_video TEXT,
+
+  sections JSONB NOT NULL,
+  -- FULL locked layout structure (no user edit)
+
+  is_premium BOOLEAN DEFAULT FALSE,
+  is_active BOOLEAN DEFAULT TRUE,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE package_templates (
+  id SERIAL PRIMARY KEY,
+  package_id INT REFERENCES packages(package_id) ON DELETE CASCADE,
+  template_id INT REFERENCES site_templates(template_id) ON DELETE CASCADE,
+  UNIQUE(package_id, template_id)
+);
+
 CREATE TABLE websites (
   website_id SERIAL PRIMARY KEY,
 
   tenant_id INT REFERENCES tenants(tenant_id),
+  template_id INT REFERENCES site_templates(template_id),
 
   name TEXT,
   domain TEXT UNIQUE,
@@ -192,52 +234,47 @@ CREATE TABLE websites (
 
   is_public BOOLEAN DEFAULT TRUE,
 
-  business_name TEXT,
-  logo TEXT,
-
-
   created_at TIMESTAMP DEFAULT now(),
   updated_at TIMESTAMP DEFAULT now()
 );
 
-CREATE TABLE pages (
-  page_id SERIAL PRIMARY KEY,
-
-  tenant_id INT REFERENCES tenants(tenant_id),
-
-  name TEXT NOT NULL,
-  slug TEXT NOT NULL,
-
-  sections JSONB NOT NULL DEFAULT '[]',
-
+CREATE TABLE website_settings (
+  setting_id SERIAL PRIMARY KEY,
+  website_id INT REFERENCES websites(website_id) ON DELETE CASCADE,
+  
+  -- Key branding / identity
+  business_name TEXT,
+  logo_url TEXT,
+  favicon_url TEXT,
+  
+  -- User content (merges with template data)
+  -- Structure: { "section_id_1": { "title": "...", "subtitle": "..." }, ... }
+  content_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  
+  -- SEO
   seo_title TEXT,
   seo_description TEXT,
+  seo_keywords TEXT[],
 
-  is_homepage BOOLEAN DEFAULT FALSE,
-  is_published BOOLEAN DEFAULT FALSE,
+  -- Domain
+  custom_domain TEXT UNIQUE,
 
-  status TEXT DEFAULT 'draft'
-    CHECK (status IN ('draft','published','archived')),
-
-  created_at TIMESTAMP DEFAULT now(),
   updated_at TIMESTAMP DEFAULT now()
 );
+
+
 
 CREATE TABLE analytics_events (
   event_id SERIAL PRIMARY KEY,
 
   tenant_id INT REFERENCES tenants(tenant_id),
   website_id INT REFERENCES websites(website_id),
-  page_id INT REFERENCES pages(page_id),
 
-  event_type TEXT DEFAULT 'page_view',
+  event_type TEXT,
 
   session_id TEXT,
-  ip_address TEXT,
-  user_agent TEXT,
-
-  referrer TEXT,
   path TEXT,
+  referrer TEXT,
 
   created_at TIMESTAMP DEFAULT now()
 );
@@ -280,49 +317,143 @@ CREATE TABLE tickets (
   assigned_to INT REFERENCES users(user_id),
 
   subject TEXT,
-  message TEXT,
 
   status TEXT DEFAULT 'open'
-    CHECK (status IN ('open','in_progress','resolved','closed')),
+    CHECK (
+      status IN (
+        'open',
+        'in_progress',
+        'resolved',
+        'closed'
+      )
+    ),
 
   priority TEXT DEFAULT 'medium'
-    CHECK (priority IN ('low','medium','high','urgent')),
+    CHECK (
+      priority IN (
+        'low',
+        'medium',
+        'high',
+        'urgent'
+      )
+    ),
 
   created_at TIMESTAMP DEFAULT now(),
   updated_at TIMESTAMP DEFAULT now()
 );
 
 
-CREATE TABLE services (
-  service_id SERIAL PRIMARY KEY,
+CREATE TABLE ticket_messages (
+  message_id SERIAL PRIMARY KEY,
 
-  tenant_id INT REFERENCES tenants(tenant_id),
-  website_id INT REFERENCES websites(website_id),
+  ticket_id INT REFERENCES tickets(ticket_id) ON DELETE CASCADE,
 
-  type TEXT NOT NULL
-    CHECK (type IN ('ecommerce','restaurant','pos','school','hospital','portfolio')),
+  sender_id INT REFERENCES users(user_id) ON DELETE SET NULL,
 
-  status TEXT DEFAULT 'active'
-    CHECK (status IN ('active','inactive','suspended')),
+  message TEXT NOT NULL,
 
-  config JSONB DEFAULT '{}'::jsonb,
+  attachment_url TEXT,
 
-  created_at TIMESTAMP DEFAULT now(),
-  updated_at TIMESTAMP DEFAULT now()
-);
-
-
-CREATE TABLE service_modules (
-  module_id SERIAL PRIMARY KEY,
-
-  service_id INT REFERENCES services(service_id) ON DELETE CASCADE,
-
-  module_type TEXT NOT NULL,
-    enabled BOOLEAN DEFAULT TRUE,
-
-  config JSONB DEFAULT '{}'::jsonb,
+  is_staff BOOLEAN DEFAULT FALSE,
 
   created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE blogs (
+  blog_id SERIAL PRIMARY KEY,
+
+  title TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+
+  content TEXT,
+  excerpt TEXT,
+
+  image TEXT,
+  image_id TEXT,
+
+  author_id INT REFERENCES users(user_id),
+  
+  category TEXT,
+  
+  status TEXT DEFAULT 'published'
+    CHECK (status IN ('draft','published','archived')),
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE blog_comments (
+  comment_id SERIAL PRIMARY KEY,
+
+  blog_id INT REFERENCES blogs(blog_id) ON DELETE CASCADE,
+  user_id INT REFERENCES users(user_id) ON DELETE SET NULL,
+
+  name TEXT,
+  email TEXT,
+
+  content TEXT NOT NULL,
+
+  is_approved BOOLEAN DEFAULT FALSE,
+
+  created_at TIMESTAMP DEFAULT now()
+);
+
+
+CREATE TABLE coupons (
+  coupon_id SERIAL PRIMARY KEY,
+
+  code VARCHAR(100) UNIQUE NOT NULL,
+
+  title VARCHAR(150),
+  description TEXT,
+
+  discount_type TEXT NOT NULL
+    CHECK (
+      discount_type IN (
+        'percentage',
+        'fixed'
+      )
+    ),
+
+  discount_value NUMERIC(10,2) NOT NULL,
+
+  -- Optional package restriction
+  package_id INT REFERENCES packages(package_id) ON DELETE CASCADE,
+
+  -- Minimum purchase amount
+  minimum_amount NUMERIC(10,2) DEFAULT 0,
+
+  -- Usage controls
+  usage_limit INT,
+  used_count INT DEFAULT 0,
+
+  -- Per-user limit
+  usage_per_user INT DEFAULT 1,
+
+  -- Validity
+  starts_at TIMESTAMP,
+  expires_at TIMESTAMP,
+
+  is_active BOOLEAN DEFAULT TRUE,
+
+  created_by INT REFERENCES users(user_id),
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE coupon_usages (
+  usage_id SERIAL PRIMARY KEY,
+
+  coupon_id INT REFERENCES coupons(coupon_id) ON DELETE CASCADE,
+
+  user_id INT REFERENCES users(user_id),
+  purchase_id INT REFERENCES purchases(purchase_id),
+
+  discount_amount NUMERIC(10,2) NOT NULL,
+
+  used_at TIMESTAMP DEFAULT now()
 );
 
 CREATE TABLE ecom_users (
@@ -1189,12 +1320,6 @@ CREATE TABLE res_order_item_variants (
 );
 
 
-CREATE INDEX idx_site_pages_tenant_slug
-ON site_pages(tenant_id, slug);
-
-CREATE INDEX idx_site_pages_tenant_home
-ON site_pages(tenant_id, is_home);
-
 
 
 CREATE TABLE sch_users (
@@ -1516,4 +1641,4 @@ CREATE TABLE sch_student_enrollments (
   admission_no VARCHAR(50) UNIQUE,
 
   enrollment_date TIMESTAMP DEFAULT now()
-);
+

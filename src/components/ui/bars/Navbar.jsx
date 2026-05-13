@@ -1,6 +1,9 @@
-import React from 'react'
+'use client'
+import React, { useState } from 'react'
+
 
 const Navbar = () => {
+  const [notifyBar, setNotifyBar]= useState(false)
   return (
     <div>
       
