@@ -5,7 +5,7 @@ import Link from "next/link";
 const MarketingPage = () => {
   return (
     <div className="relative min-h-screen bg-white overflow-hidden">
-      <Navbar />
+      
 
       {/* Hero Section */}
       <section className="relative pt-32 pb-20 lg:pt-48 lg:pb-32 px-4">
